@@ -977,6 +977,87 @@ body.modal-open {
   min-width: 110px;
 }
 
+.schedule-modal {
+  width: min(480px, 100%);
+  max-height: min(700px, calc(100vh - 44px));
+  padding: 20px;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.24);
+  animation: modal-in 220ms ease both;
+}
+
+.schedule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.schedule-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 8px;
+}
+
+.schedule-row > span {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.schedule-row input[type="time"] {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  padding: 0 9px;
+  color: var(--ink);
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  outline: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.schedule-row input[type="time"]:focus {
+  background: #fff;
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
+}
+
+.schedule-remove {
+  color: var(--coral);
+  background: var(--coral-soft);
+  border: 1px solid #f6caca;
+}
+
+.schedule-remove:hover {
+  color: #9f322a;
+  background: #fdd7d5;
+  transform: none;
+}
+
+.schedule-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 8px 11px;
+  color: var(--teal);
+  background: var(--teal-soft);
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.schedule-add svg {
+  width: 15px;
+  height: 15px;
+}
+
 .calendar-modal {
   width: min(560px, 100%);
   max-height: min(760px, calc(100vh - 44px));

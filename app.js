@@ -97,6 +97,10 @@ const elements = {
   closeCalendar: document.querySelector("#closeCalendar"),
   confirmCalendar: document.querySelector("#confirmCalendar"),
   clearMonthAdjustments: document.querySelector("#clearMonthAdjustments"),
+  alertModal: document.querySelector("#alertModal"),
+  alertTitle: document.querySelector("#alertTitle"),
+  alertMessage: document.querySelector("#alertMessage"),
+  alertConfirm: document.querySelector("#alertConfirm"),
 };
 
 const formatters = {
@@ -159,9 +163,19 @@ function saveOverrides() {
   }
 }
 
-function readNumber(input, fallback) {
-  const value = Number.parseFloat(input.value);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
+function parseInputNumber(input) {
+  const raw = input.value.trim();
+  if (raw === "") return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function isValidSalary(value) {
+  return value !== null && value > 0;
+}
+
+function isValidHours(value) {
+  return value !== null && value >= 0.5 && value <= 24;
 }
 
 function dateKey(year, monthIndex, day) {
@@ -352,12 +366,6 @@ function renderBreakdown(stats) {
 }
 
 function updateDerivedValues() {
-  state.monthlySalary = Math.max(readNumber(elements.salaryInput, state.monthlySalary), 0);
-  state.hoursPerDay = Math.min(Math.max(readNumber(elements.hoursInput, state.hoursPerDay), 0.5), 24);
-
-  elements.salaryInput.value = state.monthlySalary;
-  elements.hoursInput.value = state.hoursPerDay;
-
   const now = new Date();
   const stats = currentStats(now);
   const workDaysText = formatWorkDays(stats.workDays);
@@ -529,7 +537,9 @@ function openCalendar() {
 
 function closeCalendar() {
   elements.calendarModal.hidden = true;
-  document.body.classList.remove("modal-open");
+  if (elements.alertModal.hidden) {
+    document.body.classList.remove("modal-open");
+  }
 }
 
 function clearMonthOverrides() {
@@ -541,19 +551,79 @@ function clearMonthOverrides() {
   updateDerivedValues();
 }
 
-function handleSettingChange() {
+function showAlert(title, message) {
+  elements.alertTitle.textContent = title;
+  elements.alertMessage.textContent = message;
+  elements.alertModal.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeAlert() {
+  elements.alertModal.hidden = true;
+  if (elements.calendarModal.hidden) {
+    document.body.classList.remove("modal-open");
+  }
+}
+
+function restoreInput(input, value) {
+  input.value = value;
+}
+
+function commitSalaryInput(showErrors = true) {
+  const value = parseInputNumber(elements.salaryInput);
+  if (value === null || !isValidSalary(value)) {
+    if (showErrors) {
+      showAlert("月工资输入有误", "请输入大于 0 的有效数字。");
+    }
+    restoreInput(elements.salaryInput, state.monthlySalary);
+    return;
+  }
+  state.monthlySalary = value;
+  elements.salaryInput.value = state.monthlySalary;
   updateDerivedValues();
   state.lastWallSecond = Math.floor(Date.now() / 1000);
 }
 
-elements.salaryInput.addEventListener("input", handleSettingChange);
-elements.hoursInput.addEventListener("input", handleSettingChange);
+function commitHoursInput(showErrors = true) {
+  const value = parseInputNumber(elements.hoursInput);
+  if (value === null || !isValidHours(value)) {
+    if (showErrors) {
+      showAlert("工作时长输入有误", "请输入 0.5 到 24 小时之间的有效数字。");
+    }
+    restoreInput(elements.hoursInput, state.hoursPerDay);
+    return;
+  }
+  state.hoursPerDay = value;
+  elements.hoursInput.value = state.hoursPerDay;
+  updateDerivedValues();
+  state.lastWallSecond = Math.floor(Date.now() / 1000);
+}
+
+elements.salaryInput.addEventListener("input", () => {
+  const value = parseInputNumber(elements.salaryInput);
+  if (value === null) return;
+  if (isValidSalary(value)) commitSalaryInput(false);
+});
+elements.salaryInput.addEventListener("change", () => commitSalaryInput(true));
+elements.salaryInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") elements.salaryInput.blur();
+});
+
+elements.hoursInput.addEventListener("input", () => {
+  const value = parseInputNumber(elements.hoursInput);
+  if (value === null) return;
+  if (isValidHours(value)) commitHoursInput(false);
+});
+elements.hoursInput.addEventListener("change", () => commitHoursInput(true));
+elements.hoursInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") elements.hoursInput.blur();
+});
 
 elements.presetRow.addEventListener("click", (event) => {
   const button = event.target.closest("[data-salary]");
   if (!button) return;
   elements.salaryInput.value = button.dataset.salary;
-  handleSettingChange();
+  commitSalaryInput(false);
 });
 
 elements.tabs.forEach((tab) => {
@@ -601,9 +671,18 @@ elements.calendarGrid.addEventListener("click", (event) => {
 elements.calendarModal.addEventListener("click", (event) => {
   if (event.target === elements.calendarModal) closeCalendar();
 });
+elements.alertConfirm.addEventListener("click", closeAlert);
+elements.alertModal.addEventListener("click", (event) => {
+  if (event.target === elements.alertModal) closeAlert();
+});
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !elements.calendarModal.hidden) closeCalendar();
+  if (event.key !== "Escape") return;
+  if (!elements.alertModal.hidden) {
+    closeAlert();
+  } else if (!elements.calendarModal.hidden) {
+    closeCalendar();
+  }
 });
 
 document.addEventListener("visibilitychange", () => {

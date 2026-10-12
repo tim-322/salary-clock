@@ -201,6 +201,15 @@
         </section>
       </main>
 
+      <div class="modal-backdrop alert-backdrop" id="alertModal" hidden>
+        <div class="alert-dialog" role="alertdialog" aria-modal="true" aria-labelledby="alertTitle">
+          <div class="alert-icon"><i data-lucide="triangle-alert"></i></div>
+          <h2 id="alertTitle">输入有误</h2>
+          <p id="alertMessage">请输入有效数字。</p>
+          <button class="primary-button" id="alertConfirm" type="button">知道了</button>
+        </div>
+      </div>
+
       <div class="modal-backdrop" id="calendarModal" hidden>
         <div class="calendar-modal" role="dialog" aria-modal="true" aria-labelledby="calendarTitle">
           <div class="modal-head">

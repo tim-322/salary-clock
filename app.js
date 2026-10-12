@@ -45,9 +45,17 @@ const BUILTIN_OVERRIDES_2026 = {
   ],
 };
 
+const DEFAULT_SCHEDULE = [
+  { start: "09:00", end: "11:30" },
+  { start: "13:00", end: "17:00" },
+];
+
+const initialSchedule = loadSchedule();
+
 const state = {
   monthlySalary: 10000,
-  hoursPerDay: 8,
+  schedule: initialSchedule,
+  hoursPerDay: totalScheduleHours(initialSchedule),
   period: "month",
   running: true,
   lastWallSecond: Math.floor(Date.now() / 1000),
@@ -56,9 +64,12 @@ const state = {
   overrides: loadOverrides(),
 };
 
+let scheduleDraft = [];
+
 const elements = {
   salaryInput: document.querySelector("#salaryInput"),
-  hoursInput: document.querySelector("#hoursInput"),
+  scheduleTotal: document.querySelector("#scheduleTotal"),
+  scheduleTrigger: document.querySelector("#scheduleTrigger"),
   currentWorkdays: document.querySelector("#currentWorkdays"),
   calendarTrigger: document.querySelector("#calendarTrigger"),
   calendarNote: document.querySelector("#calendarNote"),
@@ -101,6 +112,12 @@ const elements = {
   alertTitle: document.querySelector("#alertTitle"),
   alertMessage: document.querySelector("#alertMessage"),
   alertConfirm: document.querySelector("#alertConfirm"),
+  scheduleModal: document.querySelector("#scheduleModal"),
+  scheduleList: document.querySelector("#scheduleList"),
+  addScheduleRow: document.querySelector("#addScheduleRow"),
+  closeSchedule: document.querySelector("#closeSchedule"),
+  closeScheduleBottom: document.querySelector("#closeScheduleBottom"),
+  confirmSchedule: document.querySelector("#confirmSchedule"),
 };
 
 const formatters = {
@@ -122,6 +139,49 @@ const formatters = {
 };
 
 const pad2 = (number) => String(number).padStart(2, "0");
+
+function timeToMinutes(time) {
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function totalScheduleHours(schedule) {
+  const minutes = schedule.reduce(
+    (total, session) =>
+      total + Math.max(0, timeToMinutes(session.end) - timeToMinutes(session.start)),
+    0,
+  );
+  return minutes / 60;
+}
+
+function loadSchedule() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("salary-clock-schedule") || "null");
+    if (Array.isArray(saved)) {
+      const valid = saved.filter(
+        (session) =>
+          session &&
+          typeof session.start === "string" &&
+          typeof session.end === "string" &&
+          /^\d{2}:\d{2}$/.test(session.start) &&
+          /^\d{2}:\d{2}$/.test(session.end) &&
+          timeToMinutes(session.end) > timeToMinutes(session.start),
+      );
+      if (valid.length > 0) return valid.map(({ start, end }) => ({ start, end }));
+    }
+  } catch {
+    // Local storage is unavailable in some private browsing modes.
+  }
+  return DEFAULT_SCHEDULE.map(({ start, end }) => ({ start, end }));
+}
+
+function saveSchedule() {
+  try {
+    localStorage.setItem("salary-clock-schedule", JSON.stringify(state.schedule));
+  } catch {
+    // Local storage is unavailable in some private browsing modes.
+  }
+}
 
 function uniqueKeys(keys) {
   return [...new Set(keys.filter((key) => typeof key === "string"))];
@@ -172,10 +232,6 @@ function parseInputNumber(input) {
 
 function isValidSalary(value) {
   return value !== null && value > 0;
-}
-
-function isValidHours(value) {
-  return value !== null && value >= 0.5 && value <= 24;
 }
 
 function dateKey(year, monthIndex, day) {
@@ -241,16 +297,44 @@ function currentStats(date = new Date()) {
   return monthStats(date.getFullYear(), date.getMonth());
 }
 
-function elapsedDayFraction(date) {
+function scheduleSecondsToday(schedule, date) {
   const dayStart = startOfDay(date);
-  return Math.min(Math.max((date.getTime() - dayStart.getTime()) / 86400000, 0), 1);
+  const nowSeconds = (date.getTime() - dayStart.getTime()) / 1000;
+  let total = 0;
+  let elapsed = 0;
+
+  for (const session of schedule) {
+    const startSeconds = timeToMinutes(session.start) * 60;
+    const endSeconds = timeToMinutes(session.end) * 60;
+    total += Math.max(0, endSeconds - startSeconds);
+    elapsed += Math.max(
+      0,
+      Math.min(nowSeconds, endSeconds) - Math.min(nowSeconds, startSeconds),
+    );
+  }
+
+  return { total, elapsed };
+}
+
+function isInsideWorkSchedule(date) {
+  const nowSeconds = (date.getTime() - startOfDay(date).getTime()) / 1000;
+  return state.schedule.some(
+    (session) =>
+      nowSeconds >= timeToMinutes(session.start) * 60 &&
+      nowSeconds < timeToMinutes(session.end) * 60,
+  );
+}
+
+function elapsedWorkdayFraction(date) {
+  const { total, elapsed } = scheduleSecondsToday(state.schedule, date);
+  return total > 0 ? Math.min(Math.max(elapsed / total, 0), 1) : 0;
 }
 
 function earnedMonthToDate(date) {
   const year = date.getFullYear();
   const month = date.getMonth();
   const stats = monthStats(year, month);
-  const dayFraction = elapsedDayFraction(date);
+  const dayFraction = elapsedWorkdayFraction(date);
   let total = 0;
 
   for (let day = 1; day <= date.getDate(); day += 1) {
@@ -269,7 +353,7 @@ function periodEarnings(date) {
   if (state.period === "day") {
     const key = dateKey(year, month, date.getDate());
     return dayStatus(key) === "work"
-      ? monthStats(year, month).dayRate * elapsedDayFraction(date)
+      ? monthStats(year, month).dayRate * elapsedWorkdayFraction(date)
       : 0;
   }
 
@@ -292,7 +376,9 @@ function liveSecondRate(date) {
   const year = date.getFullYear();
   const month = date.getMonth();
   const key = dateKey(year, month, date.getDate());
-  return dayStatus(key) === "work" ? monthStats(year, month).secondRate : 0;
+  if (dayStatus(key) !== "work") return 0;
+  if (!isInsideWorkSchedule(date)) return 0;
+  return monthStats(year, month).secondRate;
 }
 
 function formatClock(date) {
@@ -333,9 +419,12 @@ function updatePeriodCaption(date) {
 function updateWorkdayNotice(date) {
   const key = dateKey(date.getFullYear(), date.getMonth(), date.getDate());
   const isNonWorkday = dayStatus(key) !== "work";
-  elements.restNotice.hidden = !isNonWorkday;
+  const isOutsideSchedule = !isNonWorkday && !isInsideWorkSchedule(date);
+  elements.restNotice.hidden = !isNonWorkday && !isOutsideSchedule;
   if (isNonWorkday) {
     elements.restNotice.querySelector("span").textContent = "今天是非工作日，金额暂不增加";
+  } else if (isOutsideSchedule) {
+    elements.restNotice.querySelector("span").textContent = "当前不在工作时段内，金额暂不增加";
   }
 }
 
@@ -371,6 +460,7 @@ function updateDerivedValues() {
   const workDaysText = formatWorkDays(stats.workDays);
 
   elements.currentWorkdays.textContent = `${workDaysText} 天`;
+  elements.scheduleTotal.textContent = `${formatters.number.format(state.hoursPerDay)} 小时`;
   elements.calendarNote.textContent = `本月 ${workDaysText} 个工作日，已考虑节假日与调休`;
   elements.liveRate.textContent = formatters.precise.format(liveSecondRate(now));
   elements.miniMinute.textContent = formatters.currency.format(stats.minuteRate);
@@ -537,7 +627,7 @@ function openCalendar() {
 
 function closeCalendar() {
   elements.calendarModal.hidden = true;
-  if (elements.alertModal.hidden) {
+  if (elements.alertModal.hidden && elements.scheduleModal.hidden) {
     document.body.classList.remove("modal-open");
   }
 }
@@ -551,6 +641,82 @@ function clearMonthOverrides() {
   updateDerivedValues();
 }
 
+function renderScheduleRows() {
+  elements.scheduleList.innerHTML = scheduleDraft
+    .map(
+      (session, index) => `
+        <div class="schedule-row" data-index="${index}">
+          <input class="schedule-start" type="time" value="${session.start}" aria-label="开始时间" />
+          <span>至</span>
+          <input class="schedule-end" type="time" value="${session.end}" aria-label="结束时间" />
+          <button class="icon-button schedule-remove" type="button" data-index="${index}" aria-label="删除时段">
+            <i data-lucide="trash-2"></i>
+          </button>
+        </div>
+      `,
+    )
+    .join("");
+  window.lucide?.createIcons();
+}
+
+function openSchedule() {
+  scheduleDraft = state.schedule.map(({ start, end }) => ({ start, end }));
+  renderScheduleRows();
+  elements.scheduleModal.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeSchedule() {
+  elements.scheduleModal.hidden = true;
+  if (elements.calendarModal.hidden && elements.alertModal.hidden) {
+    document.body.classList.remove("modal-open");
+  }
+}
+
+function addScheduleRow() {
+  scheduleDraft.push({ start: "18:00", end: "19:00" });
+  renderScheduleRows();
+}
+
+function readScheduleFromDom() {
+  const rows = [...elements.scheduleList.querySelectorAll(".schedule-row")];
+  const sessions = rows.map((row) => ({
+    start: row.querySelector(".schedule-start").value,
+    end: row.querySelector(".schedule-end").value,
+  }));
+  return sessions;
+}
+
+function confirmSchedule() {
+  const sessions = readScheduleFromDom();
+  for (const session of sessions) {
+    if (!session.start || !session.end) {
+      showAlert("工作时段输入有误", "每个时段的开始和结束时间都必须填写。");
+      return;
+    }
+    if (timeToMinutes(session.end) <= timeToMinutes(session.start)) {
+      showAlert("工作时段输入有误", "结束时间必须晚于开始时间。");
+      return;
+    }
+  }
+
+  const sorted = [...sessions].sort(
+    (a, b) => timeToMinutes(a.start) - timeToMinutes(b.start),
+  );
+  for (let index = 1; index < sorted.length; index += 1) {
+    if (timeToMinutes(sorted[index].start) < timeToMinutes(sorted[index - 1].end)) {
+      showAlert("工作时段输入有误", "不同工作时段不能重叠。");
+      return;
+    }
+  }
+
+  state.schedule = sessions;
+  state.hoursPerDay = totalScheduleHours(state.schedule);
+  saveSchedule();
+  updateDerivedValues();
+  closeSchedule();
+}
+
 function showAlert(title, message) {
   elements.alertTitle.textContent = title;
   elements.alertMessage.textContent = message;
@@ -560,7 +726,7 @@ function showAlert(title, message) {
 
 function closeAlert() {
   elements.alertModal.hidden = true;
-  if (elements.calendarModal.hidden) {
+  if (elements.calendarModal.hidden && elements.scheduleModal.hidden) {
     document.body.classList.remove("modal-open");
   }
 }
@@ -584,21 +750,6 @@ function commitSalaryInput(showErrors = true) {
   state.lastWallSecond = Math.floor(Date.now() / 1000);
 }
 
-function commitHoursInput(showErrors = true) {
-  const value = parseInputNumber(elements.hoursInput);
-  if (value === null || !isValidHours(value)) {
-    if (showErrors) {
-      showAlert("工作时长输入有误", "请输入 0.5 到 24 小时之间的有效数字。");
-    }
-    restoreInput(elements.hoursInput, state.hoursPerDay);
-    return;
-  }
-  state.hoursPerDay = value;
-  elements.hoursInput.value = state.hoursPerDay;
-  updateDerivedValues();
-  state.lastWallSecond = Math.floor(Date.now() / 1000);
-}
-
 elements.salaryInput.addEventListener("input", () => {
   const value = parseInputNumber(elements.salaryInput);
   if (value === null) return;
@@ -607,16 +758,6 @@ elements.salaryInput.addEventListener("input", () => {
 elements.salaryInput.addEventListener("change", () => commitSalaryInput(true));
 elements.salaryInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") elements.salaryInput.blur();
-});
-
-elements.hoursInput.addEventListener("input", () => {
-  const value = parseInputNumber(elements.hoursInput);
-  if (value === null) return;
-  if (isValidHours(value)) commitHoursInput(false);
-});
-elements.hoursInput.addEventListener("change", () => commitHoursInput(true));
-elements.hoursInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") elements.hoursInput.blur();
 });
 
 elements.presetRow.addEventListener("click", (event) => {
@@ -671,6 +812,25 @@ elements.calendarGrid.addEventListener("click", (event) => {
 elements.calendarModal.addEventListener("click", (event) => {
   if (event.target === elements.calendarModal) closeCalendar();
 });
+elements.scheduleTrigger.addEventListener("click", openSchedule);
+elements.closeSchedule.addEventListener("click", closeSchedule);
+elements.closeScheduleBottom.addEventListener("click", closeSchedule);
+elements.confirmSchedule.addEventListener("click", confirmSchedule);
+elements.addScheduleRow.addEventListener("click", addScheduleRow);
+elements.scheduleList.addEventListener("click", (event) => {
+  const button = event.target.closest(".schedule-remove");
+  if (!button) return;
+  const index = Number(button.dataset.index);
+  if (scheduleDraft.length <= 1) {
+    showAlert("无法删除", "至少保留一个工作时段。");
+    return;
+  }
+  scheduleDraft.splice(index, 1);
+  renderScheduleRows();
+});
+elements.scheduleModal.addEventListener("click", (event) => {
+  if (event.target === elements.scheduleModal) closeSchedule();
+});
 elements.alertConfirm.addEventListener("click", closeAlert);
 elements.alertModal.addEventListener("click", (event) => {
   if (event.target === elements.alertModal) closeAlert();
@@ -682,6 +842,8 @@ document.addEventListener("keydown", (event) => {
     closeAlert();
   } else if (!elements.calendarModal.hidden) {
     closeCalendar();
+  } else if (!elements.scheduleModal.hidden) {
+    closeSchedule();
   }
 });
 

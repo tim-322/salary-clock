@@ -929,6 +929,54 @@ body.modal-open {
   backdrop-filter: blur(5px);
 }
 
+.alert-backdrop {
+  z-index: 40;
+}
+
+.alert-dialog {
+  width: min(360px, 100%);
+  padding: 24px;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.24);
+  animation: modal-in 220ms ease both;
+}
+
+.alert-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 12px;
+  place-items: center;
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-radius: 50%;
+}
+
+.alert-icon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.alert-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.alert-dialog p {
+  margin: 0 0 20px;
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.alert-dialog .primary-button {
+  min-width: 110px;
+}
+
 .calendar-modal {
   width: min(560px, 100%);
   max-height: min(760px, calc(100vh - 44px));
